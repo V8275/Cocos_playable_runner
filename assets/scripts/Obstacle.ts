@@ -30,7 +30,7 @@ export class Obstacle extends Component {
 
         if (otherCollider.node.name === 'Player' && this.gameManager) {
             this.gameManager.takeDamage(this.damage);
-            this.node.destroy();
+            
         }
     }
 }

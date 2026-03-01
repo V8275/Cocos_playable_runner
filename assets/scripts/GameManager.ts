@@ -1,6 +1,8 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, CCInteger, PhysicsSystem2D, Vec2, RigidBody2D, director } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, CCInteger, PhysicsSystem2D, Vec2, RigidBody2D, director, AudioSource, AudioClip, Animation } from 'cc';
 import { Coin } from "./Coin";
 import { Obstacle } from "./Obstacle";
+import {Player} from "db://assets/scripts/Player";
+import { ScrollingBackground } from "./ScrollingBackground";
 const { ccclass, property } = _decorator;
 
 @ccclass('GameManager')
@@ -67,6 +69,12 @@ export class GameManager extends Component {
 
     @property({
         type: CCInteger,
+        tooltip: "Obstacle Spawn Point"
+    })
+    public obstacleX: number = 500;
+
+    @property({
+        type: CCInteger,
         tooltip: "Objects Speed"
     })
     public moveSpeed: number = 300;
@@ -77,9 +85,27 @@ export class GameManager extends Component {
     })
     public messageDuration: number = 2;
 
+    @property({
+        type: CCInteger,
+        tooltip: "Coin Offset"
+    })
+    public CoinOffset: number = 200;
+
+    @property({
+        type: AudioSource,
+        tooltip: "coin sound"
+    })
+    public coinSound: AudioSource = null;
+
+    @property({
+        type: ScrollingBackground,
+        tooltip: "Scrolling Background Reference"
+    })
+    public scrollingBackground: ScrollingBackground = null;
+
     private score: number = 0;
     private lives: number = 3;
-    private isGameOver: boolean = false;
+    public isGameOver: boolean = false;
     private spawnTimer: number = 0;
     private minSpawnTime: number = 1.0;
     private maxSpawnTime: number = 2.5;
@@ -96,6 +122,13 @@ export class GameManager extends Component {
         }
         if (this.gameOverMenuNode) {
             this.gameOverMenuNode.active = false;
+        }
+
+        if (!this.scrollingBackground) {
+            this.scrollingBackground = this.node.getComponentInChildren(ScrollingBackground);
+            if (!this.scrollingBackground) {
+                console.warn("ScrollingBackground not found! Please assign it in the inspector.");
+            }
         }
     }
 
@@ -119,7 +152,7 @@ export class GameManager extends Component {
     }
 
     spawnObject() {
-        if (Math.random() < 0.6) {
+        if (Math.random() < 0.5) {
             this.spawnObstacle();
         } else {
             this.spawnCoin();
@@ -129,8 +162,9 @@ export class GameManager extends Component {
     spawnObstacle() {
         const obstacle = instantiate(this.obstaclePrefab);
         obstacle.setParent(this.objectContainer);
+        obstacle.name = 'Obstacle';
 
-        const startX = 500;
+        const startX = this.obstacleX;
         obstacle.setPosition(startX, this.obstacleY, 0);
 
         let obstacleComp = obstacle.getComponent(Obstacle);
@@ -146,21 +180,24 @@ export class GameManager extends Component {
     }
 
     spawnCoin() {
-        const coin = instantiate(this.coinPrefab);
-        coin.setParent(this.objectContainer);
+        
 
-        const startX = 500;
-        coin.setPosition(startX, this.obstacleY, 0);
+        let startX = this.obstacleX;
+        for (let i = 0; i < 3; i++){
+            const coin = instantiate(this.coinPrefab);
+            coin.setParent(this.objectContainer);
+            coin.setPosition(startX, this.obstacleY, 0);
+            let coinComp = coin.getComponent(Coin);
+            if (!coinComp) {
+                coinComp = coin.addComponent(Coin);
+            }
+            coinComp.gameManager = this;
 
-        let coinComp = coin.getComponent(Coin);
-        if (!coinComp) {
-            coinComp = coin.addComponent(Coin);
-        }
-        coinComp.gameManager = this;
-
-        const rigidBody = coin.getComponent(RigidBody2D);
-        if (rigidBody) {
-            rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
+            const rigidBody = coin.getComponent(RigidBody2D);
+            if (rigidBody) {
+                rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
+            }
+            startX = coin.getPosition().x + this.CoinOffset;
         }
     }
 
@@ -174,11 +211,19 @@ export class GameManager extends Component {
 
     addScore(points: number) {
         this.score += points;
+        this.playCoinSound();
         this.updateUI();
+    }
+
+    public playCoinSound() {
+        if (this.coinSound) {
+            this.coinSound.playOneShot(this.coinSound.clip, 1.0);
+        }
     }
 
     takeDamage() {
         this.lives--;
+        this.player.getComponent(Player).applyDamage();
         this.updateUI();
 
         if (this.lives <= 0) {
@@ -189,12 +234,28 @@ export class GameManager extends Component {
     gameOver() {
         this.isGameOver = true;
 
+        if (this.scrollingBackground) {
+            this.scrollingBackground.stopScrolling();
+        }
+
         const objects = this.objectContainer.children;
         for (let i = 0; i < objects.length; i++) {
             const obj = objects[i];
             const rigidBody = obj.getComponent(RigidBody2D);
             if (rigidBody) {
                 rigidBody.linearVelocity = new Vec2(0, 0);
+            }
+
+            const animation = obj.getComponent(Animation);
+            if (animation) {
+                animation.stop();
+            }
+        }
+
+        if (this.player) {
+            const playerAnimation = this.player.getComponent(Animation);
+            if (playerAnimation) {
+                playerAnimation.stop();
             }
         }
 

@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, input, Input, KeyCode, Animation, tween, Vec3, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Sprite, Color } from 'cc';
+import { _decorator, Component, Node, input, Input, Animation, tween, Vec3, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Sprite, Color } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('Player')
@@ -36,26 +36,28 @@ export class Player extends Component {
             this.collider.on(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
         }
 
-        input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+        input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
+
         this.node.setPosition(this.node.position.x, this.groundY, this.node.position.z);
 
         this.playWalkAnimation();
     }
 
     onDestroy() {
-        input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+        input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
+
         if (this.collider) {
             this.collider.off(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
         }
         this.unscheduleAllCallbacks();
     }
 
-    onKeyDown(event: any) {
+    onTouchStart(event: any) {
         if (this.gameManager && this.gameManager.isGameOver) {
             return;
         }
 
-        if (event.keyCode === KeyCode.SPACE && !this.isJumping) {
+        if (!this.isJumping) {
             this.jump();
         }
     }

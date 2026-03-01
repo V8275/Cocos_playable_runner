@@ -13,6 +13,8 @@ export class Player extends Component {
     public invincibilityDuration: number = 2;
 
     private isJumping: boolean = false;
+    private canJump: boolean = true;
+    private isGrounded: boolean = true;
     private animation: Animation = null;
     private collider: Collider2D = null;
     private rigidBody: RigidBody2D = null;
@@ -20,6 +22,7 @@ export class Player extends Component {
     private isInvincible: boolean = false;
     private originalColor: Color = new Color();
     private gameManager: any = null;
+    private groundContactCount: number = 0;
 
     start() {
         this.animation = this.getComponent(Animation);
@@ -34,6 +37,7 @@ export class Player extends Component {
         this.collider = this.getComponent(Collider2D);
         if (this.collider) {
             this.collider.on(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
+            this.collider.on(Contact2DType.END_CONTACT, this.onEndContact, this);
         }
 
         input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
@@ -48,6 +52,7 @@ export class Player extends Component {
 
         if (this.collider) {
             this.collider.off(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
+            this.collider.off(Contact2DType.END_CONTACT, this.onEndContact, this);
         }
         this.unscheduleAllCallbacks();
     }
@@ -57,15 +62,37 @@ export class Player extends Component {
             return;
         }
 
-        if (!this.isJumping) {
+        if (this.isGrounded && !this.isJumping && this.canJump) {
             this.jump();
         }
     }
 
     onBeginContact(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null) {
-        if (this.isJumping && otherCollider.node.name !== 'Obstacle') {
-            this.isJumping = false;
-            this.playWalkAnimation();
+        if (otherCollider.node.name === 'Ground' || otherCollider.tag === 1) { 
+            this.groundContactCount++;
+
+            if (this.isJumping && this.groundContactCount > 0) {
+                this.landOnGround();
+            }
+        }
+    }
+
+    onEndContact(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null) {
+        if (otherCollider.node.name === 'Ground' || otherCollider.tag === 1) {
+            this.groundContactCount = Math.max(0, this.groundContactCount - 1);
+            this.isGrounded = this.groundContactCount > 0;
+        }
+    }
+
+    landOnGround() {
+        this.isJumping = false;
+        this.isGrounded = true;
+        this.canJump = true;
+        this.playWalkAnimation();
+
+        const pos = this.node.position;
+        if (Math.abs(pos.y - this.groundY) > 1) {
+            this.node.setPosition(pos.x, this.groundY, pos.z);
         }
     }
 
@@ -77,7 +104,8 @@ export class Player extends Component {
         if (this.animation) {
             const clips = this.animation.clips;
             if (clips.length > 0) {
-                this.animation.play(clips[1].name);
+                const walkClip = clips.length > 1 ? clips[1] : clips[0];
+                this.animation.play(walkClip.name);
             }
         }
     }
@@ -89,34 +117,43 @@ export class Player extends Component {
 
         if (this.animation) {
             const clips = this.animation.clips;
-            if (clips.length > 1) {
+            if (clips.length > 0) {
                 this.animation.play(clips[0].name);
             }
         }
     }
 
     jump() {
-        if (this.isJumping) return;
+        if (this.isJumping || !this.isGrounded || !this.canJump) return;
 
         this.isJumping = true;
+        this.isGrounded = false;
+        this.canJump = false;
         this.playJumpAnimation();
 
         const originalPos = this.node.position.clone();
         const jumpUpPos = new Vec3(originalPos.x, originalPos.y + this.jumpHeight, originalPos.z);
+
+        tween(this.node).stop();
 
         tween(this.node)
             .to(this.jumpDuration, { position: jumpUpPos }, { easing: 'sineOut' })
             .to(this.jumpDuration, { position: originalPos }, {
                 easing: 'sineIn',
                 onComplete: () => {
-                    this.isJumping = false;
-                    this.playWalkAnimation();
+                    this.scheduleOnce(() => {
+                        if (this.isJumping) {
+                            this.landOnGround();
+                        }
+                    }, 0.1);
                 }
             })
             .start();
     }
 
     public applyDamage() {
+        if (this.isInvincible) return false;
+
         this.makeInvincible();
         return true;
     }
@@ -154,6 +191,14 @@ export class Player extends Component {
     }
 
     public isOnGround(): boolean {
-        return !this.isJumping;
+        return this.isGrounded;
+    }
+
+    public resetGroundY(value: number) {
+        this.groundY = value;
+        if (this.isGrounded && !this.isJumping) {
+            const pos = this.node.position;
+            this.node.setPosition(pos.x, this.groundY, pos.z);
+        }
     }
 }

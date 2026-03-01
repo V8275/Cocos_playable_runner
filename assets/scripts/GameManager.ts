@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, CCInteger, PhysicsSystem2D, Vec2, RigidBody2D, director, AudioSource, AudioClip, Animation } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, CCInteger, PhysicsSystem2D, Vec2, RigidBody2D, director, AudioSource, AudioClip, Animation, Tween } from 'cc';
 import { Coin } from "./Coin";
 import { Obstacle } from "./Obstacle";
 import {Player} from "db://assets/scripts/Player";
@@ -56,10 +56,22 @@ export class GameManager extends Component {
     public gameOverMenuNode: Node = null;
 
     @property({
+        type: Node,
+        tooltip: "Win Menu"
+    })
+    public winMenuNode: Node = null;
+
+    @property({
         type: Label,
         tooltip: "Total Score Label"
     })
     public finalScoreLabel: Label = null;
+
+    @property({
+        type: Label,
+        tooltip: "Win Total Score Label"
+    })
+    public winFinalScoreLabel: Label = null;
 
     @property({
         type: CCInteger,
@@ -103,13 +115,21 @@ export class GameManager extends Component {
     })
     public scrollingBackground: ScrollingBackground = null;
 
+    @property({
+        type: CCInteger,
+        tooltip: "Time to win in seconds"
+    })
+    public winTime: number = 60;
+
     private score: number = 0;
     private lives: number = 3;
     public isGameOver: boolean = false;
+    public isGameWin: boolean = false;
     private spawnTimer: number = 0;
     private minSpawnTime: number = 1.0;
     private maxSpawnTime: number = 2.5;
     private screenLeftBoundary: number = -800;
+    private gameTime: number = 0;
 
     start() {
         this.updateUI();
@@ -123,6 +143,9 @@ export class GameManager extends Component {
         if (this.gameOverMenuNode) {
             this.gameOverMenuNode.active = false;
         }
+        if (this.winMenuNode) {
+            this.winMenuNode.active = false;
+        }
 
         if (!this.scrollingBackground) {
             this.scrollingBackground = this.node.getComponentInChildren(ScrollingBackground);
@@ -130,10 +153,20 @@ export class GameManager extends Component {
                 console.warn("ScrollingBackground not found! Please assign it in the inspector.");
             }
         }
+
+        this.gameTime = 0;
+        this.isGameWin = false;
     }
 
     update(deltaTime: number) {
-        if (this.isGameOver) return;
+        if (this.isGameOver || this.isGameWin) return;
+
+        this.gameTime += deltaTime;
+
+        if (this.gameTime >= this.winTime && !this.isGameWin && !this.isGameOver) {
+            this.gameWin();
+            return;
+        }
 
         this.spawnTimer -= deltaTime;
         if (this.spawnTimer <= 0) {
@@ -180,24 +213,56 @@ export class GameManager extends Component {
     }
 
     spawnCoin() {
-        
+        const isArcFormation = Math.random() < 0.3;
 
         let startX = this.obstacleX;
-        for (let i = 0; i < 3; i++){
-            const coin = instantiate(this.coinPrefab);
-            coin.setParent(this.objectContainer);
-            coin.setPosition(startX, this.obstacleY, 0);
-            let coinComp = coin.getComponent(Coin);
-            if (!coinComp) {
-                coinComp = coin.addComponent(Coin);
-            }
-            coinComp.gameManager = this;
 
-            const rigidBody = coin.getComponent(RigidBody2D);
-            if (rigidBody) {
-                rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
+        if (isArcFormation) {
+            const baseY = this.obstacleY;
+            const arcHeight = 200;
+
+            for (let i = 0; i < 3; i++) {
+                const coin = instantiate(this.coinPrefab);
+                coin.setParent(this.objectContainer);
+
+                let posY = baseY;
+                if (i === 1) {
+                    posY = baseY + arcHeight;
+                }
+
+                coin.setPosition(startX, posY, 0);
+
+                let coinComp = coin.getComponent(Coin);
+                if (!coinComp) {
+                    coinComp = coin.addComponent(Coin);
+                }
+                coinComp.gameManager = this;
+
+                const rigidBody = coin.getComponent(RigidBody2D);
+                if (rigidBody) {
+                    rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
+                }
+
+                startX = coin.getPosition().x + this.CoinOffset - 10;
             }
-            startX = coin.getPosition().x + this.CoinOffset;
+        } else {
+            for (let i = 0; i < 3; i++) {
+                const coin = instantiate(this.coinPrefab);
+                coin.setParent(this.objectContainer);
+                coin.setPosition(startX, this.obstacleY, 0);
+
+                let coinComp = coin.getComponent(Coin);
+                if (!coinComp) {
+                    coinComp = coin.addComponent(Coin);
+                }
+                coinComp.gameManager = this;
+
+                const rigidBody = coin.getComponent(RigidBody2D);
+                if (rigidBody) {
+                    rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
+                }
+                startX = coin.getPosition().x + this.CoinOffset;
+            }
         }
     }
 
@@ -231,7 +296,44 @@ export class GameManager extends Component {
         }
     }
 
+    gameWin() {
+        if (this.isGameWin || this.isGameOver) return;
+
+        this.isGameWin = true;
+
+        if (this.scrollingBackground) {
+            this.scrollingBackground.stopScrolling();
+        }
+
+        const objects = this.objectContainer.children;
+        for (let i = 0; i < objects.length; i++) {
+            const obj = objects[i];
+            const rigidBody = obj.getComponent(RigidBody2D);
+            if (rigidBody) {
+                rigidBody.linearVelocity = new Vec2(0, 0);
+            }
+
+            const animation = obj.getComponent(Animation);
+            if (animation) {
+                animation.stop();
+            }
+        }
+
+        this.stopPlayerMovement();
+
+        if (this.winMenuNode) {
+            this.winMenuNode.active = true;
+            if (this.winFinalScoreLabel) {
+                this.winFinalScoreLabel.string = `Total Score: ${this.score}`;
+            }
+        }
+
+        console.log("Game Win! Time reached:", this.winTime, "seconds");
+    }
+
     gameOver() {
+        if (this.isGameOver || this.isGameWin) return;
+
         this.isGameOver = true;
 
         if (this.scrollingBackground) {
@@ -252,12 +354,7 @@ export class GameManager extends Component {
             }
         }
 
-        if (this.player) {
-            const playerAnimation = this.player.getComponent(Animation);
-            if (playerAnimation) {
-                playerAnimation.stop();
-            }
-        }
+        this.stopPlayerMovement();
 
         if (this.gameOverMessageNode) {
             this.gameOverMessageNode.active = true;
@@ -276,6 +373,33 @@ export class GameManager extends Component {
         }, this.messageDuration);
     }
 
+    private stopPlayerMovement() {
+        if (this.player) {
+            const playerAnimation = this.player.getComponent(Animation);
+            if (playerAnimation) {
+                playerAnimation.stop();
+            }
+
+            const playerComponent = this.player.getComponent(Player);
+            if (playerComponent) {
+                Tween.stopAllByTarget(this.player);
+
+                const playerAny = playerComponent as any;
+                const groundY = playerAny.groundY || -200;
+
+                const currentPos = this.player.position.clone();
+                this.player.setPosition(currentPos.x, groundY, currentPos.z);
+
+                const playerObj = playerComponent as any;
+                if (playerObj) {
+                    playerObj.isJumping = false;
+                    playerObj.isGrounded = false;
+                    playerObj.canJump = false;
+                }
+            }
+        }
+    }
+
     updateUI() {
         if (this.scoreLabel) {
             this.scoreLabel.string = `Score: ${this.score}`;
@@ -291,6 +415,11 @@ export class GameManager extends Component {
     }
 
     public restartGame() {
-        director.loadScene(director.getScene().name);
+        //https://play.google.com/store/apps;?hl=ru&pli=1
+        window.open('https://play.google.com/store/apps;?hl=ru&pli=1', '_blank');
+        //director.loadScene(director.getScene().name);
+    }
+    public getRemainingTime(): number {
+        return Math.max(0, this.winTime - this.gameTime);
     }
 }

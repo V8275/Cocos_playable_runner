@@ -1013,7 +1013,7 @@
     "bullet": false,
     "awakeOnLoad": true,
     "_group": 1,
-    "_type": 2,
+    "_type": 0,
     "_allowSleep": true,
     "_gravityScale": 0,
     "_linearDamping": 0,
@@ -1214,6 +1214,14 @@
       "__id__": 19
     },
     "winTime": 60,
+    "coinTargetPosition": {
+      "__type__": "cc.Vec3",
+      "x": 400,
+      "y": 300,
+      "z": 0
+    },
+    "coinEndScale": 0.5,
+    "flyingCoinPrefab": null,
     "_id": "9d3eu6Tu1Fi45EspmjnYVC"
   },
   {

@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, input, Input, Animation, tween, Vec3, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Sprite, Color } from 'cc';
+import { _decorator, Component, Node, input, Input, Animation, tween, Vec3, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, Sprite, Color, game } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('Player')
@@ -23,6 +23,8 @@ export class Player extends Component {
     private originalColor: Color = new Color();
     private gameManager: any = null;
     private groundContactCount: number = 0;
+    private currentTween: any = null;
+    private jumpStartTime: number = 0;
 
     start() {
         this.animation = this.getComponent(Animation);
@@ -45,6 +47,7 @@ export class Player extends Component {
         this.node.setPosition(this.node.position.x, this.groundY, this.node.position.z);
 
         this.playWalkAnimation();
+
     }
 
     onDestroy() {
@@ -54,6 +57,11 @@ export class Player extends Component {
             this.collider.off(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
             this.collider.off(Contact2DType.END_CONTACT, this.onEndContact, this);
         }
+
+        if (this.currentTween) {
+            this.currentTween.stop();
+        }
+
         this.unscheduleAllCallbacks();
     }
 
@@ -68,7 +76,7 @@ export class Player extends Component {
     }
 
     onBeginContact(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null) {
-        if (otherCollider.node.name === 'Ground' || otherCollider.tag === 1) { 
+        if (otherCollider.node.name === 'Ground' || otherCollider.tag === 1) {
             this.groundContactCount++;
 
             if (this.isJumping && this.groundContactCount > 0) {
@@ -94,6 +102,8 @@ export class Player extends Component {
         if (Math.abs(pos.y - this.groundY) > 1) {
             this.node.setPosition(pos.x, this.groundY, pos.z);
         }
+
+        this.jumpStartTime = 0;
     }
 
     playWalkAnimation() {
@@ -131,21 +141,40 @@ export class Player extends Component {
         this.canJump = false;
         this.playJumpAnimation();
 
+        this.jumpStartTime = performance.now() / 1000;
+
         const originalPos = this.node.position.clone();
         const jumpUpPos = new Vec3(originalPos.x, originalPos.y + this.jumpHeight, originalPos.z);
 
-        tween(this.node).stop();
+        if (this.currentTween) {
+            this.currentTween.stop();
+        }
 
-        tween(this.node)
-            .to(this.jumpDuration, { position: jumpUpPos }, { easing: 'sineOut' })
+        this.currentTween = tween(this.node)
+            .to(this.jumpDuration, { position: jumpUpPos }, {
+                easing: 'sineOut',
+                onUpdate: (target: Node, ratio: number) => {
+                    // Проверяем, не слишком ли быстро меняется позиция
+                    if (this.node.position.y > jumpUpPos.y + 10) {
+                        this.node.setPosition(this.node.position.x, jumpUpPos.y, this.node.position.z);
+                    }
+                }
+            })
             .to(this.jumpDuration, { position: originalPos }, {
                 easing: 'sineIn',
+                onUpdate: (target: Node, ratio: number) => {
+                    // Проверяем, не провалился ли игрок сквозь землю
+                    if (this.node.position.y < this.groundY - 10) {
+                        this.node.setPosition(this.node.position.x, this.groundY, this.node.position.z);
+                    }
+                },
                 onComplete: () => {
                     this.scheduleOnce(() => {
                         if (this.isJumping) {
                             this.landOnGround();
                         }
                     }, 0.1);
+                    this.currentTween = null;
                 }
             })
             .start();
@@ -199,6 +228,17 @@ export class Player extends Component {
         if (this.isGrounded && !this.isJumping) {
             const pos = this.node.position;
             this.node.setPosition(pos.x, this.groundY, pos.z);
+        }
+    }
+
+    // Добавляем метод для принудительной посадки на землю
+    public forceLand() {
+        if (this.isJumping) {
+            if (this.currentTween) {
+                this.currentTween.stop();
+                this.currentTween = null;
+            }
+            this.landOnGround();
         }
     }
 }

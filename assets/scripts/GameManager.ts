@@ -1,7 +1,7 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, CCInteger, PhysicsSystem2D, Vec2, RigidBody2D, director, AudioSource, AudioClip, Animation, Tween } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, CCInteger, PhysicsSystem2D, Vec2, RigidBody2D, director, AudioSource, Animation, Vec3, UITransform, tween, game } from 'cc';
 import { Coin } from "./Coin";
 import { Obstacle } from "./Obstacle";
-import {Player} from "db://assets/scripts/Player";
+import { Player } from "./Player";
 import { ScrollingBackground } from "./ScrollingBackground";
 const { ccclass, property } = _decorator;
 
@@ -121,21 +121,43 @@ export class GameManager extends Component {
     })
     public winTime: number = 60;
 
+    @property({
+        type: Vec3,
+        tooltip: "Target position for flying coin (right top corner)"
+    })
+    public coinTargetPosition: Vec3 = new Vec3(400, 300, 0);
+
+    @property({
+        type: Number,
+        tooltip: "Flying coin scale at the end"
+    })
+    public coinEndScale: number = 0.5;
+
+    @property({
+        type: Prefab,
+        tooltip: "Flying Coin Prefab (optional - if you want separate visual)"
+    })
+    public flyingCoinPrefab: Prefab = null;
+
     private score: number = 0;
     private lives: number = 3;
     public isGameOver: boolean = false;
     public isGameWin: boolean = false;
     private spawnTimer: number = 0;
-    private minSpawnTime: number = 1.0;
-    private maxSpawnTime: number = 2.5;
+    private minSpawnTime: number = 2.0;
+    private maxSpawnTime: number = 3.5;
     private screenLeftBoundary: number = -800;
     private gameTime: number = 0;
+    private currentSpeed: number = 0;
+    private lastDeltaTime: number = 0;
+    private speedCheckTimer: number = 0;
 
     start() {
         this.updateUI();
         this.startSpawning();
 
         PhysicsSystem2D.instance.enable = true;
+        this.currentSpeed = this.moveSpeed;
 
         if (this.gameOverMessageNode) {
             this.gameOverMessageNode.active = false;
@@ -156,10 +178,22 @@ export class GameManager extends Component {
 
         this.gameTime = 0;
         this.isGameWin = false;
+
+        // Проверка производительности каждые 5 секунд
+        this.speedCheckTimer = 0;
     }
 
     update(deltaTime: number) {
         if (this.isGameOver || this.isGameWin) return;
+
+        // Проверяем дельту времени для выявления замедлений
+        this.lastDeltaTime = deltaTime;
+        this.speedCheckTimer += deltaTime;
+
+        if (this.speedCheckTimer >= 5.0) {
+            this.checkGameSpeed();
+            this.speedCheckTimer = 0;
+        }
 
         this.gameTime += deltaTime;
 
@@ -174,12 +208,55 @@ export class GameManager extends Component {
             this.resetSpawnTimer();
         }
 
+        // Обновляем скорость всех объектов
+        this.updateObjectsSpeed();
+
         const objects = this.objectContainer.children;
         for (let i = objects.length - 1; i >= 0; i--) {
             const obj = objects[i];
 
             if (obj.position.x < this.screenLeftBoundary) {
                 obj.destroy();
+            }
+        }
+    }
+
+    private checkGameSpeed() {
+        if (this.lastDeltaTime > 0.05) { // Если FPS упал ниже 20
+            console.warn(`Game slowdown detected! DeltaTime: ${this.lastDeltaTime}`);
+
+            // Принудительно обновляем скорости всех объектов
+            this.forceUpdateAllVelocities();
+        }
+    }
+
+    private forceUpdateAllVelocities() {
+        const objects = this.objectContainer.children;
+        for (let i = 0; i < objects.length; i++) {
+            const obj = objects[i];
+            const rigidBody = obj.getComponent(RigidBody2D);
+            if (rigidBody) {
+                // Сохраняем текущую скорость
+                const currentVel = rigidBody.linearVelocity;
+                // Если скорость слишком мала, устанавливаем правильную
+                if (Math.abs(currentVel.x) < this.moveSpeed * 0.5) {
+                    rigidBody.linearVelocity = new Vec2(-this.moveSpeed, currentVel.y);
+                }
+            }
+        }
+    }
+
+    private updateObjectsSpeed() {
+        const objects = this.objectContainer.children;
+        for (let i = 0; i < objects.length; i++) {
+            const obj = objects[i];
+            const rigidBody = obj.getComponent(RigidBody2D);
+            if (rigidBody) {
+                const currentVel = rigidBody.linearVelocity;
+                // Плавно корректируем скорость до целевой
+                const targetVelX = -this.moveSpeed;
+                const newVelX = currentVel.x + (targetVelX - currentVel.x) * 0.1;
+                rigidBody.linearVelocity = new Vec2(newVelX, currentVel.y);
             }
         }
     }
@@ -209,6 +286,7 @@ export class GameManager extends Component {
         const rigidBody = obstacle.getComponent(RigidBody2D);
         if (rigidBody) {
             rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
+            rigidBody.gravityScale = 0; // Отключаем гравитацию для препятствий
         }
     }
 
@@ -241,6 +319,7 @@ export class GameManager extends Component {
                 const rigidBody = coin.getComponent(RigidBody2D);
                 if (rigidBody) {
                     rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
+                    rigidBody.gravityScale = 0; // Отключаем гравитацию для монет
                 }
 
                 startX = coin.getPosition().x + this.CoinOffset - 10;
@@ -260,6 +339,7 @@ export class GameManager extends Component {
                 const rigidBody = coin.getComponent(RigidBody2D);
                 if (rigidBody) {
                     rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
+                    rigidBody.gravityScale = 0; // Отключаем гравитацию для монет
                 }
                 startX = coin.getPosition().x + this.CoinOffset;
             }
@@ -274,9 +354,14 @@ export class GameManager extends Component {
         this.resetSpawnTimer();
     }
 
-    addScore(points: number) {
+    addScore(points: number, coinWorldPosition?: Vec3) {
         this.score += points;
         this.playCoinSound();
+
+        if (coinWorldPosition) {
+            this.createFlyingCoin(coinWorldPosition);
+        }
+
         this.updateUI();
     }
 
@@ -286,9 +371,81 @@ export class GameManager extends Component {
         }
     }
 
+    private createFlyingCoin(worldPos: Vec3) {
+        const prefabToUse = this.flyingCoinPrefab || this.coinPrefab;
+
+        if (!prefabToUse) {
+            console.warn("No coin prefab assigned for animation!");
+            return;
+        }
+
+        const flyingCoin = instantiate(prefabToUse);
+
+        flyingCoin.active = false;
+        flyingCoin.setParent(this.node);
+        const componentsToRemove = [];
+
+        const rigidBody = flyingCoin.getComponent(RigidBody2D);
+        if (rigidBody) {
+            componentsToRemove.push(rigidBody);
+        }
+
+        const colliders = flyingCoin.getComponents(Component).filter(comp =>
+            comp.name.includes('Collider2D') || comp.name.includes('BoxCollider2D') ||
+            comp.name.includes('CircleCollider2D') || comp.name.includes('PolygonCollider2D')
+        );
+
+        componentsToRemove.push(...colliders);
+
+        componentsToRemove.forEach(comp => {
+            if (comp && comp.destroy) {
+                comp.destroy();
+            }
+        });
+
+        const uiTransform = this.node.getComponent(UITransform);
+        if (!uiTransform) {
+            console.warn("UITransform not found on GameManager node!");
+            flyingCoin.destroy();
+            return;
+        }
+
+        const localPos = uiTransform.convertToNodeSpaceAR(worldPos);
+
+        flyingCoin.active = true;
+        flyingCoin.setPosition(localPos);
+
+        const startScale = flyingCoin.scale.clone();
+
+        tween(flyingCoin).stop();
+
+        tween(flyingCoin)
+            .to(0.3, {
+                position: new Vec3(localPos.x, localPos.y + 150, localPos.z),
+                scale: new Vec3(startScale.x * 1.2, startScale.y * 1.2, startScale.z)
+            }, {
+                easing: 'sineOut'
+            })
+            .to(0.5, {
+                position: this.coinTargetPosition,
+                scale: new Vec3(startScale.x * this.coinEndScale, startScale.y * this.coinEndScale, startScale.z)
+            }, {
+                easing: 'sineIn',
+                onComplete: () => {
+                    flyingCoin.destroy();
+                }
+            })
+            .start();
+    }
+
     takeDamage() {
         this.lives--;
-        this.player.getComponent(Player).applyDamage();
+        if (this.player) {
+            const playerComp = this.player.getComponent(Player);
+            if (playerComp) {
+                playerComp.applyDamage();
+            }
+        }
         this.updateUI();
 
         if (this.lives <= 0) {
@@ -311,6 +468,7 @@ export class GameManager extends Component {
             const rigidBody = obj.getComponent(RigidBody2D);
             if (rigidBody) {
                 rigidBody.linearVelocity = new Vec2(0, 0);
+                rigidBody.enabled = false; // Отключаем физику
             }
 
             const animation = obj.getComponent(Animation);
@@ -346,6 +504,7 @@ export class GameManager extends Component {
             const rigidBody = obj.getComponent(RigidBody2D);
             if (rigidBody) {
                 rigidBody.linearVelocity = new Vec2(0, 0);
+                rigidBody.enabled = false; // Отключаем физику
             }
 
             const animation = obj.getComponent(Animation);
@@ -382,19 +541,16 @@ export class GameManager extends Component {
 
             const playerComponent = this.player.getComponent(Player);
             if (playerComponent) {
-                Tween.stopAllByTarget(this.player);
-
-                const playerAny = playerComponent as any;
-                const groundY = playerAny.groundY || -200;
+                tween(this.player).stop();
 
                 const currentPos = this.player.position.clone();
-                this.player.setPosition(currentPos.x, groundY, currentPos.z);
+                this.player.setPosition(currentPos.x, currentPos.y, currentPos.z);
 
-                const playerObj = playerComponent as any;
-                if (playerObj) {
-                    playerObj.isJumping = false;
-                    playerObj.isGrounded = false;
-                    playerObj.canJump = false;
+                // Останавливаем физику игрока
+                const rigidBody = this.player.getComponent(RigidBody2D);
+                if (rigidBody) {
+                    rigidBody.linearVelocity = new Vec2(0, 0);
+                    rigidBody.enabled = false;
                 }
             }
         }
@@ -415,10 +571,10 @@ export class GameManager extends Component {
     }
 
     public restartGame() {
-        //https://play.google.com/store/apps;?hl=ru&pli=1
         window.open('https://play.google.com/store/apps;?hl=ru&pli=1', '_blank');
         //director.loadScene(director.getScene().name);
     }
+
     public getRemainingTime(): number {
         return Math.max(0, this.winTime - this.gameTime);
     }

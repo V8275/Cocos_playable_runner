@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Sprite, UITransform, Vec3, CCInteger } from 'cc';
+import { _decorator, Component, Node, Sprite, UITransform, Vec3, CCInteger, game } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('ScrollingBackground')
@@ -37,13 +37,13 @@ export class ScrollingBackground extends Component {
     private initialPos1: Vec3 = new Vec3();
     private initialPos2: Vec3 = new Vec3();
     private gameManager: any = null;
-    private isScrolling: boolean = true; // Флаг для управления прокруткой
+    private isScrolling: boolean = true;
+    private lastUpdateTime: number = 0;
+    private accumulatedDelta: number = 0;
 
     start() {
-        // Ищем GameManager в родителях
         this.gameManager = this.node.parent?.getComponent('GameManager');
 
-        // Если не нашли, ищем в сцене
         if (!this.gameManager) {
             const canvas = this.node.parent;
             if (canvas) {
@@ -69,6 +69,7 @@ export class ScrollingBackground extends Component {
             }
         }
 
+        this.lastUpdateTime = performance.now() / 1000;
         console.log(`Background initialized. GameManager found: ${!!this.gameManager}`);
     }
 
@@ -79,8 +80,29 @@ export class ScrollingBackground extends Component {
 
         if (!this.background1 || !this.background2) return;
 
+        // Проверяем на слишком большой deltaTime (замедление)
+        if (deltaTime > 0.1) {
+            console.warn(`Large deltaTime detected in background: ${deltaTime}`);
+            // Корректируем движение, чтобы не было рывков
+            this.accumulatedDelta += deltaTime;
+
+            if (this.accumulatedDelta >= 0.1) {
+                const steps = Math.floor(this.accumulatedDelta / 0.016);
+                for (let i = 0; i < steps; i++) {
+                    this.moveBackground(0.016);
+                }
+                this.accumulatedDelta = 0;
+            }
+        } else {
+            this.moveBackground(deltaTime);
+        }
+    }
+
+    private moveBackground(deltaTime: number) {
         if (this.gameManager && this.gameManager.moveSpeed) {
-            this.scrollSpeed = this.gameManager.moveSpeed;
+            // Плавно подстраиваем скорость под moveSpeed из GameManager
+            const targetSpeed = this.gameManager.moveSpeed;
+            this.scrollSpeed += (targetSpeed - this.scrollSpeed) * 0.1;
         }
 
         const moveDistance = this.scrollSpeed * deltaTime;

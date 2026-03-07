@@ -28,7 +28,9 @@ export class Coin extends Component {
 
     onBeginContact(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null) {
         if (otherCollider.node.name === 'Player' && this.gameManager) {
-            this.gameManager.addScore(this.value);
+            const worldPos = this.node.worldPosition.clone();
+
+            this.gameManager.addScore(this.value, worldPos);
             this.node.destroy();
         }
     }

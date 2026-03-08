@@ -154,7 +154,6 @@ export class Player extends Component {
             .to(this.jumpDuration, { position: jumpUpPos }, {
                 easing: 'sineOut',
                 onUpdate: (target: Node, ratio: number) => {
-                    // Проверяем, не слишком ли быстро меняется позиция
                     if (this.node.position.y > jumpUpPos.y + 10) {
                         this.node.setPosition(this.node.position.x, jumpUpPos.y, this.node.position.z);
                     }
@@ -163,7 +162,6 @@ export class Player extends Component {
             .to(this.jumpDuration, { position: originalPos }, {
                 easing: 'sineIn',
                 onUpdate: (target: Node, ratio: number) => {
-                    // Проверяем, не провалился ли игрок сквозь землю
                     if (this.node.position.y < this.groundY - 10) {
                         this.node.setPosition(this.node.position.x, this.groundY, this.node.position.z);
                     }
@@ -231,7 +229,6 @@ export class Player extends Component {
         }
     }
 
-    // Добавляем метод для принудительной посадки на землю
     public forceLand() {
         if (this.isJumping) {
             if (this.currentTween) {

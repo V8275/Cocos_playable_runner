@@ -80,10 +80,8 @@ export class ScrollingBackground extends Component {
 
         if (!this.background1 || !this.background2) return;
 
-        // Проверяем на слишком большой deltaTime (замедление)
         if (deltaTime > 0.1) {
             console.warn(`Large deltaTime detected in background: ${deltaTime}`);
-            // Корректируем движение, чтобы не было рывков
             this.accumulatedDelta += deltaTime;
 
             if (this.accumulatedDelta >= 0.1) {
@@ -100,7 +98,6 @@ export class ScrollingBackground extends Component {
 
     private moveBackground(deltaTime: number) {
         if (this.gameManager && this.gameManager.moveSpeed) {
-            // Плавно подстраиваем скорость под moveSpeed из GameManager
             const targetSpeed = this.gameManager.moveSpeed;
             this.scrollSpeed += (targetSpeed - this.scrollSpeed) * 0.1;
         }

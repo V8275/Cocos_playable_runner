@@ -1,8 +1,9 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, CCInteger, PhysicsSystem2D, Vec2, RigidBody2D, director, AudioSource, Animation, Vec3, UITransform, tween, game } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, CCInteger, PhysicsSystem2D, Vec2, RigidBody2D, director, AudioSource, Animation, Vec3, UITransform, tween, game, Color } from 'cc';
 import { Coin } from "./Coin";
 import { Obstacle } from "./Obstacle";
 import { Player } from "./Player";
 import { ScrollingBackground } from "./ScrollingBackground";
+import { FloatingText } from "./FloatingText";
 const { ccclass, property } = _decorator;
 
 @ccclass('GameManager')
@@ -14,10 +15,10 @@ export class GameManager extends Component {
     public player: Node = null;
 
     @property({
-        type: Prefab,
-        tooltip: "Obstacle Prefab"
+        type: [Prefab],
+        tooltip: "Obstacle Prefabs Array - разные препятствия"
     })
-    public obstaclePrefab: Prefab = null;
+    public obstaclePrefabs: Prefab[] = [];
 
     @property({
         type: Prefab,
@@ -139,6 +140,12 @@ export class GameManager extends Component {
     })
     public flyingCoinPrefab: Prefab = null;
 
+    @property({
+        type: Prefab,
+        tooltip: "Floating Text Prefab - появляется при сборе монеты"
+    })
+    public floatingTextPrefab: Prefab = null;
+
     private score: number = 0;
     private lives: number = 3;
     public isGameOver: boolean = false;
@@ -158,6 +165,14 @@ export class GameManager extends Component {
 
         PhysicsSystem2D.instance.enable = true;
         this.currentSpeed = this.moveSpeed;
+
+        if (!this.obstaclePrefabs || this.obstaclePrefabs.length === 0) {
+            console.error("No obstacle prefabs assigned! Please add at least one obstacle prefab.");
+        }
+
+        if (!this.floatingTextPrefab) {
+            console.warn("FloatingText prefab not assigned! Floating text will not appear.");
+        }
 
         if (this.gameOverMessageNode) {
             this.gameOverMessageNode.active = false;
@@ -179,14 +194,12 @@ export class GameManager extends Component {
         this.gameTime = 0;
         this.isGameWin = false;
 
-        // Проверка производительности каждые 5 секунд
         this.speedCheckTimer = 0;
     }
 
     update(deltaTime: number) {
         if (this.isGameOver || this.isGameWin) return;
 
-        // Проверяем дельту времени для выявления замедлений
         this.lastDeltaTime = deltaTime;
         this.speedCheckTimer += deltaTime;
 
@@ -208,7 +221,6 @@ export class GameManager extends Component {
             this.resetSpawnTimer();
         }
 
-        // Обновляем скорость всех объектов
         this.updateObjectsSpeed();
 
         const objects = this.objectContainer.children;
@@ -222,10 +234,8 @@ export class GameManager extends Component {
     }
 
     private checkGameSpeed() {
-        if (this.lastDeltaTime > 0.05) { // Если FPS упал ниже 20
+        if (this.lastDeltaTime > 0.05) {
             console.warn(`Game slowdown detected! DeltaTime: ${this.lastDeltaTime}`);
-
-            // Принудительно обновляем скорости всех объектов
             this.forceUpdateAllVelocities();
         }
     }
@@ -236,9 +246,7 @@ export class GameManager extends Component {
             const obj = objects[i];
             const rigidBody = obj.getComponent(RigidBody2D);
             if (rigidBody) {
-                // Сохраняем текущую скорость
                 const currentVel = rigidBody.linearVelocity;
-                // Если скорость слишком мала, устанавливаем правильную
                 if (Math.abs(currentVel.x) < this.moveSpeed * 0.5) {
                     rigidBody.linearVelocity = new Vec2(-this.moveSpeed, currentVel.y);
                 }
@@ -253,7 +261,6 @@ export class GameManager extends Component {
             const rigidBody = obj.getComponent(RigidBody2D);
             if (rigidBody) {
                 const currentVel = rigidBody.linearVelocity;
-                // Плавно корректируем скорость до целевой
                 const targetVelX = -this.moveSpeed;
                 const newVelX = currentVel.x + (targetVelX - currentVel.x) * 0.1;
                 rigidBody.linearVelocity = new Vec2(newVelX, currentVel.y);
@@ -270,12 +277,22 @@ export class GameManager extends Component {
     }
 
     spawnObstacle() {
-        const obstacle = instantiate(this.obstaclePrefab);
-        obstacle.setParent(this.objectContainer);
-        obstacle.name = 'Obstacle';
+        if (!this.obstaclePrefabs || this.obstaclePrefabs.length === 0) {
+            console.warn("No obstacle prefabs available to spawn!");
+            return;
+        }
 
-        const startX = this.obstacleX;
-        obstacle.setPosition(startX, this.obstacleY, 0);
+        const randomIndex = Math.floor(Math.random() * this.obstaclePrefabs.length);
+        const obstaclePrefab = this.obstaclePrefabs[randomIndex];
+
+        if (!obstaclePrefab) {
+            console.warn("Selected obstacle prefab is null!");
+            return;
+        }
+
+        const obstacle = instantiate(obstaclePrefab);
+        obstacle.setParent(this.objectContainer);
+        obstacle.setPosition(this.obstacleX, this.obstacleY, 0);
 
         let obstacleComp = obstacle.getComponent(Obstacle);
         if (!obstacleComp) {
@@ -286,8 +303,10 @@ export class GameManager extends Component {
         const rigidBody = obstacle.getComponent(RigidBody2D);
         if (rigidBody) {
             rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
-            rigidBody.gravityScale = 0; // Отключаем гравитацию для препятствий
+            rigidBody.gravityScale = 0;
         }
+
+        console.log(`Spawned obstacle: ${obstaclePrefab.name}`);
     }
 
     spawnCoin() {
@@ -319,7 +338,7 @@ export class GameManager extends Component {
                 const rigidBody = coin.getComponent(RigidBody2D);
                 if (rigidBody) {
                     rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
-                    rigidBody.gravityScale = 0; // Отключаем гравитацию для монет
+                    rigidBody.gravityScale = 0;
                 }
 
                 startX = coin.getPosition().x + this.CoinOffset - 10;
@@ -339,7 +358,7 @@ export class GameManager extends Component {
                 const rigidBody = coin.getComponent(RigidBody2D);
                 if (rigidBody) {
                     rigidBody.linearVelocity = new Vec2(-this.moveSpeed, 0);
-                    rigidBody.gravityScale = 0; // Отключаем гравитацию для монет
+                    rigidBody.gravityScale = 0;
                 }
                 startX = coin.getPosition().x + this.CoinOffset;
             }
@@ -360,6 +379,14 @@ export class GameManager extends Component {
 
         if (coinWorldPosition) {
             this.createFlyingCoin(coinWorldPosition);
+
+            if (Math.random() < 0.5) {
+                this.spawnFloatingText(
+                    coinWorldPosition,
+                    `+${points}`,
+                    Color.YELLOW
+                );
+            }
         }
 
         this.updateUI();
@@ -438,6 +465,36 @@ export class GameManager extends Component {
             .start();
     }
 
+    private spawnFloatingText(worldPos: Vec3, text: string, color: Color = Color.YELLOW) {
+        if (!this.floatingTextPrefab) {
+            console.warn("FloatingText prefab not assigned!");
+            return;
+        }
+
+        const floatingText = instantiate(this.floatingTextPrefab);
+
+        floatingText.setParent(this.node);
+
+        const floatingTextComp = floatingText.getComponent(FloatingText);
+        if (!floatingTextComp) {
+            console.warn("FloatingText component not found on prefab!");
+            floatingText.destroy();
+            return;
+        }
+
+        const uiTransform = this.node.getComponent(UITransform);
+        if (uiTransform) {
+            const localPos = uiTransform.convertToNodeSpaceAR(worldPos);
+            floatingText.setPosition(localPos);
+        } else {
+            floatingText.setPosition(worldPos);
+        }
+
+        floatingTextComp.setColor(color);
+
+        floatingText.active = true;
+    }
+
     takeDamage() {
         this.lives--;
         if (this.player) {
@@ -468,7 +525,7 @@ export class GameManager extends Component {
             const rigidBody = obj.getComponent(RigidBody2D);
             if (rigidBody) {
                 rigidBody.linearVelocity = new Vec2(0, 0);
-                rigidBody.enabled = false; // Отключаем физику
+                rigidBody.enabled = false;
             }
 
             const animation = obj.getComponent(Animation);
@@ -504,7 +561,7 @@ export class GameManager extends Component {
             const rigidBody = obj.getComponent(RigidBody2D);
             if (rigidBody) {
                 rigidBody.linearVelocity = new Vec2(0, 0);
-                rigidBody.enabled = false; // Отключаем физику
+                rigidBody.enabled = false;
             }
 
             const animation = obj.getComponent(Animation);
@@ -546,7 +603,6 @@ export class GameManager extends Component {
                 const currentPos = this.player.position.clone();
                 this.player.setPosition(currentPos.x, currentPos.y, currentPos.z);
 
-                // Останавливаем физику игрока
                 const rigidBody = this.player.getComponent(RigidBody2D);
                 if (rigidBody) {
                     rigidBody.linearVelocity = new Vec2(0, 0);
